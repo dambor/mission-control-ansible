@@ -1,0 +1,337 @@
+---
+# DataStax Mission Control Installation Playbook
+# Usage: ansible-playbook install.yml
+
+- name: Install DataStax Mission Control on OpenShift
+  hosts: localhost
+  connection: local
+  gather_facts: yes
+  
+  vars_files:
+    - vars.yml
+
+  tasks:
+    - name: Display installation banner
+      debug:
+        msg:
+          - "╔════════════════════════════════════════════════════════════╗"
+          - "║     DataStax Mission Control Installation                 ║"
+          - "╚════════════════════════════════════════════════════════════╝"
+          - ""
+          - "Operators Namespace: {{ project_cpd_inst_operators }}"
+          - "Operands Namespace:  {{ project_cpd_inst_operands }}"
+          - "Bundle: {{ datastax_bundle_file }}"
+          - ""
+
+    # ========================================================================
+    # Prerequisites
+    # ========================================================================
+
+    - name: Check OpenShift connectivity
+      command: oc whoami
+      register: oc_user
+      changed_when: false
+
+    - name: Display OpenShift user
+      debug:
+        msg: "Connected as: {{ oc_user.stdout }}"
+
+    - name: Create working directory
+      file:
+        path: "{{ work_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Check if bundle exists in files directory
+      stat:
+        path: "files/{{ datastax_bundle_file }}"
+      register: bundle_in_files
+
+    - name: Copy bundle to working directory
+      copy:
+        src: "files/{{ datastax_bundle_file }}"
+        dest: "{{ work_dir }}/{{ datastax_bundle_file }}"
+        mode: '0644'
+      when: bundle_in_files.stat.exists
+
+    - name: Verify bundle exists
+      stat:
+        path: "{{ work_dir }}/{{ datastax_bundle_file }}"
+      register: bundle_check
+      failed_when: not bundle_check.stat.exists
+
+    - name: Create operators namespace
+      command: oc create namespace {{ project_cpd_inst_operators }}
+      register: ns_operators
+      failed_when:
+        - ns_operators.rc != 0
+        - "'AlreadyExists' not in ns_operators.stderr"
+      changed_when: ns_operators.rc == 0
+
+    - name: Create operands namespace
+      command: oc create namespace {{ project_cpd_inst_operands }}
+      register: ns_operands
+      failed_when:
+        - ns_operands.rc != 0
+        - "'AlreadyExists' not in ns_operands.stderr"
+      changed_when: ns_operands.rc == 0
+
+    # ========================================================================
+    # Configuration
+    # ========================================================================
+
+    - name: Generate password hash
+      shell: |
+        echo "{{ admin_password }}" | htpasswd -BinC 10 admin | cut -d: -f2
+      register: password_hash_result
+      changed_when: false
+      no_log: true
+
+    - name: Set password hash
+      set_fact:
+        password_hash: "{{ password_hash_result.stdout }}"
+      no_log: true
+
+    - name: Create overrides.yaml
+      copy:
+        content: |
+          # Install overrides for DataStax Mission Control
+          global:
+            watchNamespaces:
+              - {{ project_cpd_inst_operands }}
+              - {{ project_cpd_inst_operators }}
+          
+          dex:
+            config:
+              enablePasswordDB: true
+              staticPasswords:
+                - email: {{ user_email }}
+                  hash: {{ password_hash }}
+                  username: admin
+                  userID: "admin"
+          
+          ui:
+            enabled: true
+            https:
+              enabled: true
+            generateOpenshiftRoute: {{ create_route | lower }}
+          
+          {% if resource_limits.enabled %}
+          resources:
+            limits:
+              cpu: {{ resource_limits.cpu_limit }}
+              memory: {{ resource_limits.memory_limit }}
+            requests:
+              cpu: {{ resource_limits.cpu_request }}
+              memory: {{ resource_limits.memory_request }}
+          {% endif %}
+        dest: "{{ work_dir }}/overrides.yaml"
+        mode: '0600'
+
+    # ========================================================================
+    # Security Context Constraints
+    # ========================================================================
+
+    - name: Grant SCC to operator service accounts
+      command: >
+        oc adm policy add-scc-to-user nonroot-v2
+        -z {{ item }}
+        -n {{ project_cpd_inst_operators }}
+      loop: "{{ service_accounts.operators }}"
+      register: scc_operators
+      changed_when: "'added' in scc_operators.stdout or 'granted' in scc_operators.stdout"
+      failed_when:
+        - scc_operators.rc != 0
+        - "'already has' not in scc_operators.stderr"
+
+    - name: Grant SCC to operand service accounts
+      command: >
+        oc adm policy add-scc-to-user nonroot-v2
+        -z {{ item }}
+        -n {{ project_cpd_inst_operands }}
+      loop: "{{ service_accounts.operands }}"
+      register: scc_operands
+      changed_when: "'added' in scc_operands.stdout or 'granted' in scc_operands.stdout"
+      failed_when:
+        - scc_operands.rc != 0
+        - "'already has' not in scc_operands.stderr"
+
+    # ========================================================================
+    # Helm Installation
+    # ========================================================================
+
+    - name: Check if Helm release exists
+      command: >
+        helm list -n {{ project_cpd_inst_operators }}
+        -f {{ datastax_release_name }}
+      register: helm_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install Mission Control with Helm
+      command: >
+        helm install {{ datastax_release_name }}
+        --namespace {{ project_cpd_inst_operators }}
+        -f {{ work_dir }}/overrides.yaml
+        --timeout 10m
+        --wait
+        {{ work_dir }}/{{ datastax_bundle_file }}
+      when: datastax_release_name not in helm_check.stdout
+      register: helm_install
+
+    - name: Display Helm installation status
+      debug:
+        msg: "Mission Control Helm release installed"
+      when: helm_install.changed
+
+    - name: Wait for pods to be created
+      command: >
+        oc get pod -l app.kubernetes.io/instance=mission-control
+        -n {{ project_cpd_inst_operators }}
+      register: pod_check
+      until: pod_check.stdout_lines | length > 1
+      retries: 30
+      delay: 5
+      changed_when: false
+
+    - name: Wait for pods to be ready
+      command: >
+        oc wait --for=condition=Ready pod
+        -l app.kubernetes.io/instance=mission-control
+        -n {{ project_cpd_inst_operators }}
+        --timeout=600s
+      register: pod_ready
+
+    - name: Display pod status
+      command: >
+        oc get pods -n {{ project_cpd_inst_operators }}
+        -l app.kubernetes.io/instance=mission-control
+      register: pod_status
+      changed_when: false
+
+    - debug:
+        msg: "{{ pod_status.stdout_lines }}"
+
+    # ========================================================================
+    # RBAC for watsonx.data
+    # ========================================================================
+
+    - name: Create RBAC Role for watsonx.data
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: "{{ rbac.role_name }}"
+            namespace: "{{ project_cpd_inst_operands }}"
+          rules:
+            - apiGroups:
+                - missioncontrol.datastax.com
+              resources:
+                - missioncontrolclusters
+              verbs:
+                - create
+                - delete
+                - get
+                - list
+                - patch
+                - update
+                - watch
+            - apiGroups:
+                - missioncontrol.datastax.com
+              resources:
+                - missioncontrolclusters/finalizers
+              verbs:
+                - update
+            - apiGroups:
+                - missioncontrol.datastax.com
+              resources:
+                - missioncontrolclusters/status
+              verbs:
+                - get
+                - patch
+                - update
+
+    - name: Create RBAC RoleBinding for watsonx.data
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: "{{ rbac.rolebinding_name }}"
+            namespace: "{{ project_cpd_inst_operands }}"
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: "{{ rbac.role_name }}"
+          subjects:
+            - kind: ServiceAccount
+              name: "{{ rbac.service_account }}"
+              namespace: "{{ project_cpd_inst_operands }}"
+
+    - name: Annotate operands namespace
+      command: >
+        oc annotate namespace {{ project_cpd_inst_operands }}
+        mission-control.datastax.com/project-name={{ project_cpd_inst_operands }}
+        --overwrite
+      changed_when: true
+
+    - name: Label operands namespace
+      command: >
+        oc label namespace {{ project_cpd_inst_operands }}
+        mission-control.datastax.com/is-project=true
+        --overwrite
+      changed_when: true
+
+    # ========================================================================
+    # Route Creation
+    # ========================================================================
+
+    - name: Create OpenShift route
+      command: >
+        oc create route passthrough mission-control-mission-control-embedded-ui
+        --service=mission-control-mission-control-embedded-ui
+        --port={{ route_port }}
+        -n {{ project_cpd_inst_operators }}
+      register: route_create
+      failed_when:
+        - route_create.rc != 0
+        - "'AlreadyExists' not in route_create.stderr"
+      changed_when: route_create.rc == 0
+      when: create_route | bool
+
+    - name: Get route hostname
+      command: >
+        oc get route mission-control-mission-control-embedded-ui
+        -n {{ project_cpd_inst_operators }}
+        -o jsonpath='{.spec.host}'
+      register: route_hostname
+      changed_when: false
+      when: create_route | bool
+
+    # ========================================================================
+    # Installation Complete
+    # ========================================================================
+
+    - name: Display installation summary
+      debug:
+        msg:
+          - "╔════════════════════════════════════════════════════════════╗"
+          - "║     Installation Complete!                                ║"
+          - "╚════════════════════════════════════════════════════════════╝"
+          - ""
+          - "Mission Control UI:"
+          - "  https://{{ route_hostname.stdout }}"
+          - ""
+          - "Login Credentials:"
+          - "  Email:    {{ user_email }}"
+          - "  Password: {{ admin_password }}"
+          - ""
+          - "Next Steps:"
+          - "  1. Access the UI using the URL above"
+          - "  2. Login with your credentials"
+          - "  3. Create your first DataStax cluster"
+          - ""
+      when: create_route | bool

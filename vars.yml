@@ -1,0 +1,55 @@
+---
+# DataStax Mission Control Installation Variables
+
+# ============================================================================
+# REQUIRED: Update these with your values
+# ============================================================================
+
+# Admin Credentials
+user_email: "admin@example.com"
+admin_password: "change-me-to-secure-password"
+
+# IBM Registry Secret (JWT Token from IBM Passport Advantage)
+ibm_registry_secret: "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJJQk0gTWFya2V0cGxhY2UiLCJpYXQiOjE3NTU4ODM0NTAsImp0aSI6ImIxMmJkMDFhOGM4YTQyZGZiNTBiYzA5OGQ1ZWRkM2U0In0.KcMOQXYS2BlRNYMoj9Noq4m2bx1kM7M4Ise6Z9XeElY"
+
+# DataStax Bundle File
+datastax_bundle_file: "mission-control-embedded-v1.14.0.tar.gz"
+
+# ============================================================================
+# OPTIONAL: Customize if needed
+# ============================================================================
+
+# OpenShift Namespaces
+project_cpd_inst_operands: "cpd"
+project_cpd_inst_operators: "cpd-operators"
+
+# Installation Settings
+work_dir: "/tmp/datastax-install"
+datastax_release_name: "mission-control"
+
+# Route Configuration
+create_route: true
+route_port: 8080
+
+# Service Accounts (for SCC)
+service_accounts:
+  operators:
+    - mission-control-cass-operator
+    - mission-control-dex
+    - mission-control-k8ssandra-operator
+  operands:
+    - mission-control-mission-control-embedded
+
+# RBAC Settings (for watsonx.data)
+rbac:
+  role_name: "wxd-datastax-hcd-manager-role"
+  rolebinding_name: "wxd-datastax-hcd-manager-rb"
+  service_account: "wxd-editor-sa"
+
+# Resource Limits (set enabled: true to apply)
+resource_limits:
+  enabled: false
+  cpu_limit: "2000m"
+  memory_limit: "4Gi"
+  cpu_request: "1000m"
+  memory_request: "2Gi"

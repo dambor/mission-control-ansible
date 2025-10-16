@@ -1,0 +1,12 @@
+# Place DataStax bundle here
+
+Download the bundle and place it in this directory:
+
+```bash
+# Example:
+mv ~/Downloads/mission-control-embedded-v1.14.0.tar.gz files/
+```
+
+Download from:
+- https://w3.ibm.com/w3publisher/software-downloads
+- https://ibm.box.com/s/mwtcjzkf9qw72k2jjkx530zozmydb9cx
