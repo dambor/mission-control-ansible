@@ -1,0 +1,62 @@
+---
+# DataStax Mission Control Installation Variables - EXAMPLE
+# 
+# INSTRUCTIONS:
+# 1. Copy this file: cp vars.yml.example vars.yml
+# 2. Edit vars.yml with your actual values
+# 3. vars.yml is in .gitignore and will NOT be committed
+
+# ============================================================================
+# REQUIRED: Update these with your values
+# ============================================================================
+
+# Admin Credentials
+user_email: "admin@example.com"
+admin_password: "CHANGE-ME-TO-SECURE-PASSWORD"
+
+# IBM Registry Secret (JWT Token from IBM Passport Advantage)
+# Get from: https://w3.ibm.com/w3publisher/software-downloads
+ibm_registry_secret: "YOUR-JWT-TOKEN-HERE"
+
+# DataStax Bundle File
+datastax_bundle_file: "mission-control-embedded-v1.14.0.tar.gz"
+
+# ============================================================================
+# OPTIONAL: Customize if needed
+# ============================================================================
+
+# OpenShift Namespaces
+project_cpd_inst_operands: "cpd"
+project_cpd_inst_operators: "cpd-operators"
+
+# Installation Settings
+work_dir: "/tmp/datastax-install"
+datastax_release_name: "mission-control"
+
+# Route Configuration
+create_route: true
+route_port: 8080
+
+# Service Accounts (for SCC)
+service_accounts:
+  operators:
+    - mission-control-cass-operator
+    - mission-control-dex
+    - mission-control-k8ssandra-operator
+  operands:
+    - mission-control-mission-control-embedded
+
+# RBAC Settings (for watsonx.data)
+rbac:
+  role_name: "wxd-datastax-hcd-manager-role"
+  rolebinding_name: "wxd-datastax-hcd-manager-rb"
+  service_account: "wxd-editor-sa"
+
+# Resource Limits (RECOMMENDED to prevent OOMKills)
+# Your cluster has plenty of memory, so these are safe
+resource_limits:
+  enabled: true
+  cpu_limit: "1000m"        # 1 CPU core max
+  memory_limit: "2Gi"       # 2GB max per pod
+  cpu_request: "500m"       # Reserve 0.5 CPU
+  memory_request: "1Gi"     # Reserve 1GB per pod

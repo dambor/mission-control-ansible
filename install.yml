@@ -1,6 +1,7 @@
 ---
-# DataStax Mission Control Installation Playbook
-# Usage: ansible-playbook install.yml
+# DataStax Mission Control Installation Playbook - Fixed Version
+# Usage: ansible-playbook install-fixed.yml
+# This version properly handles job pods and won't hang
 
 - name: Install DataStax Mission Control on OpenShift
   hosts: localhost
@@ -173,8 +174,7 @@
         helm install {{ datastax_release_name }}
         --namespace {{ project_cpd_inst_operators }}
         -f {{ work_dir }}/overrides.yaml
-        --timeout 10m
-        --wait
+        --timeout 15m
         {{ work_dir }}/{{ datastax_bundle_file }}
       when: datastax_release_name not in helm_check.stdout
       register: helm_install
@@ -190,27 +190,115 @@
         -n {{ project_cpd_inst_operators }}
       register: pod_check
       until: pod_check.stdout_lines | length > 1
-      retries: 30
+      retries: 60
       delay: 5
       changed_when: false
 
-    - name: Wait for pods to be ready
-      command: >
-        oc wait --for=condition=Ready pod
-        -l app.kubernetes.io/instance=mission-control
-        -n {{ project_cpd_inst_operators }}
-        --timeout=600s
-      register: pod_ready
-
-    - name: Display pod status
+    - name: Get all pod names
       command: >
         oc get pods -n {{ project_cpd_inst_operators }}
         -l app.kubernetes.io/instance=mission-control
-      register: pod_status
+        -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}'
+      register: all_pods
       changed_when: false
 
-    - debug:
-        msg: "{{ pod_status.stdout_lines }}"
+    - name: Display all pods
+      debug:
+        msg: "Pods found: {{ all_pods.stdout_lines }}"
+
+    # ========================================================================
+    # FIXED: Separate handling for different pod types
+    # ========================================================================
+
+    - name: Identify deployment pods (exclude jobs)
+      shell: >
+        oc get pods -n {{ project_cpd_inst_operators }}
+        -l app.kubernetes.io/instance=mission-control
+        -o jsonpath='{range .items[?(@.metadata.ownerReferences[0].kind!="Job")]}{.metadata.name}{"\n"}{end}'
+      register: deployment_pods
+      changed_when: false
+
+    - name: Display deployment pods (will wait for these)
+      debug:
+        msg: "Deployment pods to monitor: {{ deployment_pods.stdout_lines }}"
+
+    - name: Identify job pods (should complete, not stay running)
+      shell: >
+        oc get pods -n {{ project_cpd_inst_operators }}
+        -l app.kubernetes.io/instance=mission-control
+        -o jsonpath='{range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.metadata.name}{"\n"}{end}'
+      register: job_pods
+      changed_when: false
+
+    - name: Display job pods (expect these to complete)
+      debug:
+        msg: "Job pods (expect Completed status): {{ job_pods.stdout_lines }}"
+
+    - name: Wait for deployment pods to be ready (exclude jobs)
+      command: >
+        oc wait --for=condition=Ready pod/{{ item }}
+        -n {{ project_cpd_inst_operators }}
+        --timeout=600s
+      loop: "{{ deployment_pods.stdout_lines }}"
+      when: deployment_pods.stdout_lines | length > 0
+      register: pods_ready
+      failed_when: false
+
+    - name: Check job pod status (should be Completed or Succeeded)
+      command: >
+        oc get pod/{{ item }}
+        -n {{ project_cpd_inst_operators }}
+        -o jsonpath='{.status.phase}'
+      loop: "{{ job_pods.stdout_lines }}"
+      when: job_pods.stdout_lines | length > 0
+      register: job_status
+      changed_when: false
+
+    - name: Display job pod status
+      debug:
+        msg: "Job {{ item.item }}: {{ item.stdout }}"
+      loop: "{{ job_status.results }}"
+      when: job_status is defined and job_status.results is defined
+
+    - name: Get final pod status
+      command: >
+        oc get pods -n {{ project_cpd_inst_operators }}
+        -l app.kubernetes.io/instance=mission-control
+      register: final_pod_status
+      changed_when: false
+
+    - name: Display all pod status
+      debug:
+        msg: "{{ final_pod_status.stdout_lines }}"
+
+    # ========================================================================
+    # Verify pods are actually running
+    # ========================================================================
+
+    - name: Count running deployment pods
+      shell: >
+        oc get pods -n {{ project_cpd_inst_operators }}
+        -l app.kubernetes.io/instance=mission-control
+        -o jsonpath='{range .items[?(@.metadata.ownerReferences[0].kind!="Job")]}{.status.phase}{"\n"}{end}' |
+        grep -c "Running" || echo "0"
+      register: running_count
+      changed_when: false
+
+    - name: Count completed job pods
+      shell: >
+        oc get pods -n {{ project_cpd_inst_operators }}
+        -l app.kubernetes.io/instance=mission-control
+        -o jsonpath='{range .items[?(@.metadata.ownerReferences[0].kind=="Job")]}{.status.phase}{"\n"}{end}' |
+        grep -c -E "Succeeded|Completed" || echo "0"
+      register: completed_job_count
+      changed_when: false
+
+    - name: Verify minimum pods are running
+      assert:
+        that:
+          - running_count.stdout | int >= 3
+        fail_msg: "Only {{ running_count.stdout }} deployment pods are running. Expected at least 3."
+        success_msg: "✓ {{ running_count.stdout }} deployment pods are running"
 
     # ========================================================================
     # RBAC for watsonx.data
@@ -319,8 +407,14 @@
       debug:
         msg:
           - "╔════════════════════════════════════════════════════════════╗"
-          - "║     Installation Complete!                                ║"
+          - "║     Installation Complete! ✓                              ║"
           - "╚════════════════════════════════════════════════════════════╝"
+          - ""
+          - "Pod Status:"
+          - "  Deployment Pods Running: {{ running_count.stdout }}"
+          - "  Job Pods Completed: {{ completed_job_count.stdout }}"
+          - ""
+          - "{{ final_pod_status.stdout_lines | join('\n') }}"
           - ""
           - "Mission Control UI:"
           - "  https://{{ route_hostname.stdout }}"

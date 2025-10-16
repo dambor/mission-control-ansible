@@ -1,0 +1,155 @@
+# DataStax Mission Control Ansible - .gitignore
+
+# ============================================================================
+# CRITICAL: Secrets and Credentials
+# ============================================================================
+# Your vars.yml contains passwords and tokens - DO NOT COMMIT!
+vars.yml
+vars/secrets.yml
+**/secrets.yml
+
+# Vault password files
+.vault_pass.txt
+.vault_pass
+vault-password.txt
+
+# Keys and certificates
+*.key
+*.pem
+*.crt
+*.p12
+*.jks
+
+# Environment files
+.env
+.env.*
+
+# ============================================================================
+# DataStax Bundles (Large Files - ~500MB)
+# ============================================================================
+files/*.tar.gz
+files/*.tgz
+files/*.zip
+files/*.tar
+mission-control-*.tar.gz
+
+# Keep directory structure
+!files/.keep
+!files/README.md
+
+# ============================================================================
+# Ansible Generated Files
+# ============================================================================
+*.retry
+*.log
+logs/
+
+# Working directories
+tmp/
+/tmp/
+work/
+/work/
+datastax-install/
+/tmp/datastax-install/
+
+# Generated configurations
+overrides.yaml
+wxd-role.yaml
+wxd-rolebinding.yaml
+
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv/
+
+# ============================================================================
+# IDE and Editors
+# ============================================================================
+# VSCode
+.vscode/
+*.code-workspace
+
+# IntelliJ / PyCharm
+.idea/
+*.iml
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Sublime
+*.sublime-*
+
+# ============================================================================
+# OS Files
+# ============================================================================
+# macOS
+.DS_Store
+._*
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Linux
+.directory
+
+# ============================================================================
+# Backup Files
+# ============================================================================
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# ============================================================================
+# Diagnostics and Test Files
+# ============================================================================
+diagnostics.txt
+diagnostics-*.txt
+quickfix-*.txt
+troubleshoot-*.txt
+test_*.yml
+*_test.yml
+
+# ============================================================================
+# Archives and Compressed Files
+# ============================================================================
+*.zip
+*.tar
+*.gz
+*.bz2
+*.7z
+
+# ============================================================================
+# Local Overrides and Notes
+# ============================================================================
+local_vars.yml
+local.yml
+*.local
+NOTES.md
+TODO.md
+
+# ============================================================================
+# Cache
+# ============================================================================
+.cache/
+*.cache
+
+# ============================================================================
+# Keep These Example Files
+# ============================================================================
+!vars.yml.example
+!vars-example.yml
+!*.example
+!*.template
