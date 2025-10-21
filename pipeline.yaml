@@ -43,6 +43,18 @@ spec:
     - name: ansible-vars-file
       type: string
       default: "vars.yml"
+    - name: ansible-user-email
+      type: string
+      description: "Admin email for Mission Control"
+    - name: ansible-admin-password
+      type: string
+      description: "Admin password for Mission Control"
+    - name: ansible-ibm-registry-secret
+      type: string
+      description: "JWT token from IBM for registry authentication"
+    - name: ansible-datastax-bundle-file
+      type: string
+      description: "DataStax bundle filename (e.g., mission-control-embedded-v1.14.0.tar.gz)"
   workspaces:
     - name: shared-configuration
   tasks:

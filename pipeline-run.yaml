@@ -31,6 +31,14 @@ spec:
       value: "main"
     - name: ansible-vars-file
       value: "vars.yml"
+    - name: ansible-user-email
+      value: "admin@example.com" # Update with actual admin email
+    - name: ansible-admin-password
+      value: "changeme" # Update with actual admin password
+    - name: ansible-ibm-registry-secret
+      value: "" # Update with actual IBM JWT token
+    - name: ansible-datastax-bundle-file
+      value: "mission-control-embedded-v1.14.0.tar.gz" # Update with actual bundle filename
   workspaces:
     - name: shared-configuration
       volumeClaimTemplate:
