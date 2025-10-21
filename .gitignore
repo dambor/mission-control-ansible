@@ -27,11 +27,11 @@ vault-password.txt
 # ============================================================================
 # DataStax Bundles (Large Files - ~500MB)
 # ============================================================================
-files/*.tar.gz
-files/*.tgz
-files/*.zip
-files/*.tar
-mission-control-*.tar.gz
+#files/*.tar.gz
+#files/*.tgz
+#files/*.zip
+#files/*.tar
+#mission-control-*.tar.gz
 
 # Keep directory structure
 !files/.keep
