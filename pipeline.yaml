@@ -1,0 +1,256 @@
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: configure-deployer
+  namespace: default
+spec:
+  params:
+    - name: cloud-pak-deployer-version
+      type: string
+      default: latest
+    - name: cp4d-version
+      type: string
+    - name: deployer-namespace
+      type: string
+      default: "cloud-pak-deployer"
+    - name: deployer-sa
+      type: string
+      default: "cpd-sa"
+    - name: ibm-entitlement-key
+      type: string
+      default: ""
+    - name: cloudpak
+      type: string
+      default: ""
+    - name: file-storage
+      type: string
+      default: ocs-external-storagecluster-cephfs
+    - name: block-storage
+      type: string
+      default: ocs-external-storagecluster-ceph-rbd
+    - name: deployer-pvc
+      type: string
+      default: cloud-pak-deployer-pvc
+    - name: override_url
+      type: string
+    - name: mission-control-ansible-repo
+      type: string
+      default: "https://github.com/dambor/mission-control-ansible.git"
+    - name: mission-control-branch
+      type: string
+      default: "main"
+    - name: ansible-vars-file
+      type: string
+      default: "vars.yml"
+  workspaces:
+    - name: shared-configuration
+  tasks:
+    - name: create-namespace-for-cloud-pak-deployer
+      displayName: Create Namespace For Cloud Pak Deployer
+      taskRef:
+        kind: Task
+        name: create-namespace
+      params:
+        - name: namespace
+          value: $(params.deployer-namespace)
+    - name: create-sa-for-cp-deployer
+      displayName: Create Service Account for Cloud Pak Deployer
+      runAfter:
+        - create-namespace-for-cloud-pak-deployer
+      taskRef:
+        kind: Task
+        name: create-service-account
+      params:
+        - name: namespace
+          value: $(params.deployer-namespace)
+        - name: sa
+          value: $(params.deployer-sa)
+    - name: bind-scc-for-sa
+      displayName: Bind the privileged SCC for the cloud pak deployer sa
+      runAfter:
+        - create-sa-for-cp-deployer
+      taskRef:
+        kind: Task
+        name: create-scc-rolebinding
+      params:
+        - name: scc
+          value: privileged
+        - name: sa
+          value: $(params.deployer-sa)
+        - name: namespace
+          value: $(params.deployer-namespace)
+    - name: bind-cr-for-sa
+      displayName: Bind the cluster admin privileges for cloud pak deployer sa
+      runAfter:
+        - bind-scc-for-sa
+      taskRef:
+        kind: Task
+        name: create-cr-rolebinding
+      params:
+        - name: cr
+          value: cluster-admin
+        - name: sa
+          value: $(params.deployer-sa)
+        - name: namespace
+          value: $(params.deployer-namespace)
+    - name: get-tz-ibm-entitlement-key
+      displayName: Get the TZ ibm entitlement key
+      runAfter:
+        - bind-cr-for-sa
+      taskRef:
+        kind: Task
+        name: ibmcloud-secrets-manager-get
+      params:
+        - name: KEY_ID
+          value: 968d7819-f2c5-7b67-c420-3c6bfd51521e
+        - name: SECRETS_MANAGER_ENDPOINT_URL
+          value: >-
+            https://afa20521-cd75-4864-843f-e59fd0ffd49d.us-south.secrets-manager.appdomain.cloud
+    - name: create-ibm-entitlement-secret
+      displayName: Create the IBM Entitlement Secret for Cloud Pak Deployer
+      runAfter:
+        - get-tz-ibm-entitlement-key
+      taskRef:
+        kind: Task
+        name: create-ibm-entitlement-secret
+      params:
+        - name: ibm-entitlement-key
+          value: $(params.ibm-entitlement-key)
+        - name: tz-ibm-entitlement-key
+          value: $(tasks.get-tz-ibm-entitlement-key.results.secret-value)
+        - name: namespace
+          value: $(params.deployer-namespace)
+    - name: prepare-cp4d-configmap
+      displayName: Prepare cloud pak deployer configmap for cp4d
+      runAfter:
+        - create-ibm-entitlement-secret
+      taskRef:
+        kind: Task
+        name: prepare-cp4d-configmap
+      params:
+        - name: cp4d-version
+          value: $(params.cp4d-version)
+        - name: override_url
+          value: $(params.override_url)
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-configuration
+      when:
+        - input: $(params.cloudpak)
+          operator: in
+          values: ["cp4d"]
+    - name: create-configmap
+      displayName: Create the configmap to house metadata config for cloud pak deployer
+      runAfter:
+        - prepare-cp4d-configmap
+      taskRef:
+        kind: Task
+        name: create-configmap
+      params:
+        - name: configmap
+          value: cpd-config
+        - name: namespace
+          value: $(params.deployer-namespace)
+        - name: result-path
+          value: $(tasks.prepare-cp4d-configmap.results.output-file)
+      workspaces:
+        - name: shared-workspace
+          workspace: shared-configuration
+    - name: create-pvc
+      displayName: Create the PVC for cloud pak deployer status files
+      runAfter:
+        - create-configmap
+      taskRef:
+        kind: Task
+        name: create-pvc
+      params:
+        - name: pvc
+          value: $(params.deployer-pvc)
+        - name: namespace
+          value: $(params.deployer-namespace)
+        - name: sc
+          value: $(params.file-storage)
+        - name: accessmode
+          value: ReadWriteMany
+        - name: size
+          value: 5Gi
+    - name: run-cloud-pak-deployer
+      displayName: Run the cloud pak deployer for CP4D
+      runAfter:
+        - create-pvc
+      taskRef:
+        kind: Task
+        name: run-cloud-pak-deployer
+      params:
+        - name: configmap
+          value: cpd-config
+        - name: namespace
+          value: $(params.deployer-namespace)
+        - name: cloud-pak-deployer-version
+          value: $(params.cloud-pak-deployer-version)
+        - name: status-pvc
+          value: $(params.deployer-pvc)
+        - name: deployer-sa
+          value: $(params.deployer-sa)
+    - name: run-mission-control-ansible
+      displayName: Run Mission Control Ansible Playbook
+      runAfter:
+        - run-cloud-pak-deployer
+      taskSpec:
+        params:
+          - name: ansible-repo-url
+            type: string
+            default: $(params.mission-control-ansible-repo)
+          - name: ansible-branch
+            type: string
+            default: $(params.mission-control-branch)
+          - name: ansible-vars-file
+            type: string
+            default: $(params.ansible-vars-file)
+        steps:
+          - name: run-ansible-playbook
+            image: knickkennedy/k8s-tools@sha256:4403945ccbe3c3cd81d3b08d5c79a6a9bd263a798f0edee57b50740f7fef503e
+            workingDir: /workspace
+            script: |
+              #!/bin/bash
+              set -e
+              
+              echo "Cloning mission-control-ansible repository..."
+              git clone --branch $(params.ansible-branch) $(params.ansible-repo-url) mission-control-ansible
+              
+              cd mission-control-ansible
+              
+              echo "Verifying Ansible installation..."
+              ansible --version
+              
+              echo "Installing required Ansible collections..."
+              ansible-galaxy collection install kubernetes.core community.general -f
+              
+              echo "Verifying variables file exists..."
+              if [ ! -f "$(params.ansible-vars-file)" ]; then
+                echo "ERROR: $(params.ansible-vars-file) not found in repository"
+                exit 1
+              fi
+              
+              echo "Running Ansible playbook install.yml..."
+              ansible-playbook -i localhost install.yml -e "ansible_connection=local"
+              
+              echo "Mission Control Ansible playbook completed successfully"
+  finally:
+    - name: update-configmap-success
+      when:
+        - input: $(tasks.run-cloud-pak-deployer.status)
+          operator: in
+          values: ["Succeeded"]
+      taskSpec:
+        steps:
+          - name: update-configmap-success
+            image: docker.io/knickkennedy/k8s-tools@sha256:542002707d909d25b3ed05654f77c514a507b1fc916ad3d44adb5a672adb4299
+            script: |
+              cpd_route=$(oc get route cpd -n cpd --template='{{ .spec.host }}')
+              echo "Console Route: $cpd_route"
+              initial_admin_password=$(oc get secret admin-user-details -n cpd -o               jsonpath='{.data.initial_admin_password}' | base64 -d)
+              echo "Username: admin"
+              echo "Password: $initial_admin_password"
+              oc patch configmap/pipeline-output -p "{\"data\":{\"Status\":\"Pipeline run Successful\",\"CP4D-Console-Route\":\"${cpd_route}\",\"CP4D-Initial-Admin-Username\":\"admin\",\"CP4D-Initial-Admin-Password\":\"${initial_admin_password}\"}}"
