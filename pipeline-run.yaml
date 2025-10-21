@@ -1,0 +1,42 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  name: configure-deployer
+  namespace: default
+spec:
+  pipelineRef:
+    name: configure-deployer
+  params:
+    - name: cloud-pak-deployer-version
+      value: latest
+    - name: cp4d-version
+      value: "5.2.0"
+    - name: deployer-namespace
+      value: cloud-pak-deployer
+    - name: deployer-sa
+      value: cpd-sa
+    - name: ibm-entitlement-key
+      value: "" # Or pass one if needed at runtime
+    - name: cloudpak
+      value: cp4d
+    - name: file-storage
+      value: ocs-external-storagecluster-cephfs
+    - name: block-storage
+      value: ocs-external-storagecluster-ceph-rbd
+    - name: deployer-pvc
+      value: cloud-pak-deployer-pvc
+    - name: mission-control-ansible-repo
+      value: "https://github.com/dambor/mission-control-ansible.git"
+    - name: mission-control-branch
+      value: "main"
+    - name: ansible-vars-file
+      value: "vars.yml"
+  workspaces:
+    - name: shared-configuration
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce # access mode may affect how you can use this volume in parallel tasks
+          resources:
+            requests:
+              storage: 1Gi
