@@ -34,8 +34,8 @@ vault-password.txt
 #mission-control-*.tar.gz
 
 # Keep directory structure
-!files/.keep
-!files/README.md
+#!files/.keep
+#!files/README.md
 
 # ============================================================================
 # Ansible Generated Files
