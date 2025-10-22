@@ -12,11 +12,11 @@
 
 # Admin Credentials
 user_email: "admin@example.com"
-admin_password: "CHANGE-ME-TO-SECURE-PASSWORD"
+admin_password: "adminadmin"
 
 # IBM Registry Secret (JWT Token from IBM Passport Advantage)
 # Get from: https://w3.ibm.com/w3publisher/software-downloads
-ibm_registry_secret: "YOUR-JWT-TOKEN-HERE"
+# ibm_registry_secret: "YOUR-JWT-TOKEN-HERE"
 
 # DataStax Bundle File
 datastax_bundle_file: "mission-control-embedded-v1.14.0.tar.gz"
